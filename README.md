@@ -151,9 +151,28 @@ python bidding_engine.py
 # Step 4: Run the market analytics aggregation pipeline
 python analytics.py
 
-# Step 5: Run the multi-threaded concurrency race condition test
-python concurrency_test.py
+# Step 5: Run the formal Pytest suite (12 automated tests)
+pytest -v
+
+# Step 6: Generate test code coverage report
+pytest --cov=bidding_engine --cov=analytics --cov-report=term-missing
 ```
+
+---
+
+## 🎓 Defense Quick Reference
+
+**Q1: Why choose MongoDB over a Relational Database (PostgreSQL/MySQL) for an auction system?**  
+> **Answer:** Auctions demand extremely low read latency during closing countdowns. In relational models, fetching an auction with its seller profile, category metadata, and latest bids requires multi-table `JOIN` operations. MongoDB allows us to embed the latest bids directly inside the document (the Subset Pattern), serving full listing states in a single disk read.
+
+**Q2: How does ApexBid solve race conditions without using Redis or database table locks?**  
+> **Answer:** We rely on MongoDB's single-document write atomicity using `findOneAndUpdate`. By embedding filter conditions directly into the update query (`{ current_bid: { $lt: new_bid }, ends_at: { $gt: now } }`), MongoDB serializes concurrent writes at the document level. If 20 users submit a bid at the exact same millisecond, the first valid bid updates the document and all remaining 19 queries fail gracefully.
+
+**Q3: What happens if an auction receives 50,000 bids? Does the document exceed 16MB?**  
+> **Answer:** No. We implemented the Subset Pattern. Using the `$slice: -5` modifier within `$push`, the `recent_bids` array never exceeds 5 items. The remaining historical bids are asynchronously written to the append-only `bid_ledger` collection.
+
+**Q4: Explain the purpose of the compound index `[("status", 1), ("ends_at", 1)]`.**  
+> **Answer:** It adheres to MongoDB's **ESR (Equality, Sort, Range)** indexing rule. The primary access pattern is finding `status: "active"` (Equality) sorted by `ends_at: 1` (Sort). The index allows MongoDB to avoid an in-memory `SORT` and full collection scan (`COLLSCAN`), resolving queries directly via an Index Scan (`IXSCAN`).
 
 ---
 
